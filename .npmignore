@@ -1,0 +1,6 @@
+*/
+!esm/
+!lib/
+!umd/
+tsconfig*.json
+.parcelrc

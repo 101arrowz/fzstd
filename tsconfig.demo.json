@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "ESNext",
+    "jsx": "preserve",
+    "allowSyntheticDefaultImports": true,
+    "moduleResolution": "node"
+  },
+  "include": ["demo/**/*.ts", "demo/**/*.tsx", "demo/augment.d.ts"],
+  "exclude": ["demo/sw.ts"]
+}

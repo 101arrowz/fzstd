@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "moduleResolution": "node",
+    "outDir": "lib/"
+  },
+  "include": ["src/*.ts"]
+}
