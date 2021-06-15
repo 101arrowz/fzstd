@@ -3,7 +3,7 @@
 import wk from './node-worker';
 
 // aliases for shorter compressed code (most minifers don't do this)
-const u8 = Uint8Array, u16 = Uint16Array, i16 = Int16Array, u32 = Uint32Array;
+const ab = ArrayBuffer, u8 = Uint8Array, u16 = Uint16Array, i16 = Int16Array, u32 = Uint32Array, i32 = Int32Array;
 
 // Huffman decoding table
 interface HDT {
@@ -37,6 +37,8 @@ interface DZstdState {
   readonly c: number;
   // last huffman decoding table
   h?: HDT;
+  // last FSE decoding tables
+  t?: [FSEDT, FSEDT, FSEDT];
   // last block
   l: number;
 }
@@ -75,9 +77,9 @@ const fill = <T extends Uint8Array | Uint16Array | Uint32Array>(v: T, n: number,
 export const ZstdErrorCode = {
   InvalidData: 0,
   WindowSizeTooLarge: 1,
-  InvalidBlockSize: 2,
-  InvalidBlockType: 3,
-  FSEAccuracyTooHigh: 4
+  InvalidBlockType: 2,
+  FSEAccuracyTooHigh: 3,
+  DistanceTooFarBack: 4
 } as const;
 
 type ZEC = (typeof ZstdErrorCode)[keyof typeof ZstdErrorCode];
@@ -86,9 +88,9 @@ type ZEC = (typeof ZstdErrorCode)[keyof typeof ZstdErrorCode];
 const ec: Record<ZEC, string | undefined> = [
   'invalid zstd data',
   'window size too large (>2046MB)',
-  'invalid block size',
   'invalid block type',
-  'FSE accuracy too high'
+  'FSE accuracy too high',
+  'match distance too far back'
 ];
 
 /**
@@ -118,7 +120,7 @@ const rb = (d: Uint8Array, b: number, n: number) => {
 const b4 = (d: Uint8Array, b: number) => (d[b] | (d[b + 1] << 8) | (d[b + 2] << 16) | (d[b + 3] << 24)) >>> 0;
 
 // read Zstandard frame header
-const rzfh = (dat: Uint8Array): number | DZstdState => {
+export const rzfh = (dat: Uint8Array): number | DZstdState => {
   const n3 = dat[0] | (dat[1] << 8) | (dat[2] << 16);
   if (n3 == 0x2FB528 && dat[3] == 253) {
     // Zstandard
@@ -127,19 +129,19 @@ const rzfh = (dat: Uint8Array): number | DZstdState => {
     const ss = (flg >> 5) & 1, cc = (flg >> 2) & 1, df = flg & 3, fcf = flg >> 6;
     if (flg & 8) err(0);
     // byte
-    let bt = 5 + ss;
+    let bt = 6 - ss;
     // dict bytes
     const db = df == 3 ? 4 : df;
     // dictionary id
     const di = rb(dat, bt, db);
     bt += db;
     // frame size bytes
-    const fsb = fcf ? ss : (1 << fcf);
+    const fsb = fcf ? (1 << fcf) : ss;
     // frame source size
     const fss = rb(dat, bt, fsb) + ((fcf == 1) && 256);
     // window size
     let ws = fss;
-    if (ss) {
+    if (!ss) {
       // window descriptor
       const wb = 1 << (10 + (dat[5] >> 3));
       ws = wb + (wb >> 3) * (dat[5] & 7);
@@ -174,13 +176,13 @@ const rfse = (dat: Uint8Array, bt: number, mal: number): [number, FSEDT] => {
   let tpos = (bt << 3) + 4;
   // accuracy log
   const al = (dat[bt] & 15) + 5;
-  if (al > mal) err(4);
+  if (al > mal) err(3);
   // size
   const sz = 1 << al;
   // probabilities symbols  repeat   index   high threshold
   let probs = sz, sym = -1, re = -1, i = -1, ht = sz;
   // optimization: single allocation is much faster
-  const buf = new ArrayBuffer(512 + (sz << 2));
+  const buf = new ab(512 + (sz << 2));
   const freq = new i16(buf, 0, 256);
   // same view as freq
   const dstate = new u16(buf, 0, 256);
@@ -228,7 +230,7 @@ const rfse = (dat: Uint8Array, bt: number, mal: number): [number, FSEDT] => {
   const smask = sz - 1;
   for (let s = 0; s <= sym; ++s) {
     const sf = freq[s];
-    if (sf <= 0) {
+    if (sf < 1) {
       dstate[s] = -sf;
       continue;
     }
@@ -268,7 +270,7 @@ const rhu = (dat: Uint8Array, bt: number): [number, HDT] => {
   // rank count
   const rc = buf.subarray(256, 268);
   // rank index
-  const ri = new u16(buf, 268);
+  const ri = new u16(buf.buffer, 268);
   // NOTE: at this point bt is 1 less than expected
   if (hb < 128) {
     // end byte, fse decode table
@@ -313,6 +315,7 @@ const rhu = (dat: Uint8Array, bt: number): [number, HDT] => {
   let wes = 0;
   for (i = 0; i < wc; ++i) {
     const wt = hw[i];
+    // bits must be at most 11, same as weight
     if (wt > 11) err(0);
     wes += wt && (1 << (wt - 1));
   }
@@ -322,7 +325,7 @@ const rhu = (dat: Uint8Array, bt: number): [number, HDT] => {
   const ts = 1 << mb;
   // remaining sum
   const rem = ts - wes;
-  // must be power of 2, mb must be at most 11
+  // must be power of 2
   if (rem & (rem - 1)) err(0);
   hw[wc++] = msb(rem) + 1;
   for (i = 0; i < wc; ++i) {
@@ -353,19 +356,63 @@ const rhu = (dat: Uint8Array, bt: number): [number, HDT] => {
   }];
 }
 
+// Tables generated using this:
+// https://gist.github.com/101arrowz/a979452d4355992cbf8f257cbffc9edd
+
+// default literal length table
+const dllt = /*#__PURE__*/ rfse(/*#__PURE__*/ new u8([
+  81, 16, 99, 140, 49, 198, 24, 99, 12, 33, 196, 24, 99, 102, 102, 134, 70, 146, 4
+]), 0, 6)[1];
+
+// default match length table
+const dmlt = /*#__PURE__*/ rfse(/*#__PURE__*/ new u8([
+  33, 20, 196, 24, 99, 140, 33, 132, 16, 66, 8, 33, 132, 16, 66, 8, 33, 68, 68, 68, 68, 68, 68, 68, 68, 36, 9
+]), 0, 6)[1];
+
+// default offset code table
+const doct = /*#__PURE__ */ rfse(/*#__PURE__*/ new u8([
+  32, 132, 16, 66, 102, 70, 68, 68, 68, 68, 36, 73, 2
+]), 0, 5)[1];
+
+// bits to baseline
+const b2bl = (b: Uint8Array, s: number) => {
+  const len = b.length, bl = new i32(len);
+  for (let i = 0; i < len; ++i) {
+    bl[i] = s;
+    s += 1 << b[i];
+  }
+  return bl;
+}
+
+// literal length bits
+const llb = /*#__PURE__ */ new u8((/*#__PURE__ */ new i32([
+  0, 0, 0, 0, 16843009, 50528770, 134678020, 202050057, 269422093
+])).buffer, 0, 36);
+
+// literal length baseline
+const llbl = /*#__PURE__ */ b2bl(llb, 0);
+
+// match length bits
+const mlb = /*#__PURE__ */ new u8((/*#__PURE__ */ new i32([
+  0, 0, 0, 0, 0, 0, 0, 0, 16843009, 50528770, 117769220, 185207048, 252579084, 16
+])).buffer, 0, 53);
+
+// match length baseline
+const mlbl = /*#__PURE__ */ b2bl(mlb, 3);
+
 // decode huffman stream
 const dhu = (dat: Uint8Array, out: Uint8Array, hu: HDT) => {
-  const len = dat.length, ss = out.length, lb = dat[len - 1];
+  const len = dat.length, ss = out.length, lb = dat[len - 1], msk = (1 << hu.b) - 1, eb = -hu.b;
   if (!lb) err(0);
-  let st = 0, btr = hu.b, pos = (len << 3) - 16 + msb(lb), i = -1;
-  for (; pos > 0 && i < ss;) {
+  let st = 0, btr = hu.b, pos = (len << 3) - 8 + msb(lb) - btr, i = -1;
+  for (; pos > eb && i < ss;) {
     const cbt = pos >> 3;
     const val = (dat[cbt] | (dat[cbt + 1] << 8) | (dat[cbt + 2] << 16)) >> (pos & 7);
-    st = ((st << btr) | val) & ((1 << btr) - 1);
+    st = ((st << btr) | val) & msk;
     out[++i] = hu.s[st];
-    btr = hu.n[st];
+    pos -= (btr = hu.n[st]);
   }
-  if (i + 1 != ss) err(0);
+  if (pos != eb || i + 1 != ss) err(0);
 }
 
 // decode huffman stream 4x
@@ -380,14 +427,14 @@ const dhu4 = (dat: Uint8Array, out: Uint8Array, hu: HDT) => {
 }
 
 // read Zstandard block
-const rzb = (dat: Uint8Array, st: DZstdState) => {
+export const rzb = (dat: Uint8Array, st: DZstdState) => {
   let bt = st.b;
   //    byte 0        block type
   const b0 = dat[bt], btype = (b0 >> 1) & 3;
   st.l = b0 & 1;
   const sz = (b0 >> 3) | (dat[bt + 1] << 5) | (dat[bt + 2] << 13);
-  if (sz > st.m) err(2);
-  bt += 3;
+  // end byte for block
+  const ebt = (bt += 3) + sz;
   if (btype == 0) return slc(dat, bt, st.b = bt + sz);
   if (btype == 1) {
     st.b = bt + 1;
@@ -408,22 +455,22 @@ const rzb = (dat: Uint8Array, st: DZstdState) => {
       else lss |= (dat[++bt] << 4) | ((dat[++bt] & 63) << 12), lcs = (dat[bt] >> 6) | (dat[++bt] << 2) | (dat[++bt] << 10);
     }
     ++bt;
-    const buf = new u8(sz);
+    // add literals to end - can never overlap with backreferences because unused literals always appended
+    const buf = new u8(st.m);
     // starting point for literals
-    const spl = sz - lss;
+    let spl = st.m - lss;
     if (lbt == 0) buf.set(dat.subarray(bt, bt += lss), spl);
-    else if (lbt == 1) fill(buf, dat[bt++], spl, sz);
+    else if (lbt == 1) fill(buf, dat[bt++], spl, st.m);
     else {
       // huffman table
-      let hu: HDT;
+      let hu = st.h;
       if (lbt == 2) {
         const hud = rhu(dat, bt);
         // subtract description length
         lcs += bt - (bt = hud[0]);
-        hu = hud[1];
+        st.h = hu = hud[1];
       }
-      else if (st.h) hu = st.h
-      else err(0);
+      else if (!hu) err(0);
       (s4 ? dhu4 : dhu)(dat.subarray(bt, bt += lcs), buf.subarray(spl), hu);
     }
     // num sequences
@@ -433,9 +480,80 @@ const rzb = (dat: Uint8Array, st: DZstdState) => {
       else if (ns > 127) ns = ((ns - 128) << 8) | dat[bt++];
       // symbol compression modes
       const scm = dat[bt++];
-      
+      if (scm & 3) err(0);
+      let dts: [FSEDT, FSEDT, FSEDT] = [dmlt, doct, dllt];
+      for (let i = 2; i > -1; --i) {
+        const md = (scm >> ((i << 1) + 2)) & 3;
+        if (md == 1) {
+          // rle buf
+          const rbuf = new u8([0, 0, dat[bt++]]);
+          dts[i] = {
+            s: rbuf.subarray(2, 3),
+            n: rbuf.subarray(0, 1),
+            t: new u16(rbuf.buffer, 0, 1),
+            b: 0
+          };
+        } else if (md == 2) {
+          // accuracy log 8 for offsets, 9 for others
+          [bt, dts[i]] = rfse(dat, bt, 9 - (i & 1));
+        } else if (md == 3) {
+          if (!st.t) err(0);
+          dts[i] = st.t[i];
+        }
+      }
+      const [mlt, oct, llt] = st.t = dts;
+      const lb = dat[ebt - 1], offh = new i32(3);
+      let spos = (ebt << 3) - 8 + msb(lb), oubt = 0;
+      let ost = 0, obtr = oct.b, mst = 0, mbtr = mlt.b, lst = 0, lbtr = llt.b;
+      for (++ns; --ns;) {
+        const lbt = (spos -= lbtr) >> 3;
+        lst += ((dat[lbt] | (dat[lbt + 1] << 8)) >> (spos & 7)) & ((1 << lbtr) - 1);
+        const llc = llt.s[lst];
+        lbtr = llt.n[lst];
+        lst = llt.t[lst];
+        const lebt = (spos -= llb[llc]) >> 3;
+        const ll = llbl[llc] + (((dat[lebt] | (dat[lebt + 1] << 8) | (dat[lebt + 2] << 16)) >> (spos & 7)) & ((1 << llb[llc]) - 1));
+
+        const mbt = (spos -= mbtr) >> 3;
+        mst += ((dat[mbt] | (dat[mbt + 1] << 8)) >> (spos & 7)) & ((1 << mbtr) - 1);
+        const mlc = mlt.s[mst];
+        mbtr = mlt.n[mst];
+        mst = mlt.t[mst];
+        const mebt = (spos -= mlb[mlc]) >> 3;
+        let ml = mlbl[mlc] + (((dat[mebt] | (dat[mebt + 1] << 8) | (dat[mebt + 2] << 16)) >> (spos & 7)) & ((1 << mlb[mlc]) - 1));
+
+        const obt = (spos -= obtr) >> 3;
+        ost += ((dat[obt] | (dat[obt + 1] << 8)) >> (spos & 7)) & ((1 << obtr) - 1);
+        const ofc = oct.s[ost];
+        obtr = oct.n[ost];
+        ost = oct.t[ost];
+        const oebt = (spos -= ofc) >> 3;
+        let off = (1 << ofc) + ((dat[oebt] | (dat[oebt + 1] << 8) | (dat[oebt + 2] << 16) | (dat[oebt + 3] << 24)) >>> (spos & 7));
+        if (off > 3) {
+          offh[2] = offh[1];
+          offh[1] = offh[0];
+          offh[0] = off -= 3;
+        } else {
+          const idx = off - ((ll != 0) as unknown as number);
+          if (idx) {
+            if (idx > 1) offh[2] = offh[1];
+            offh[1] = offh[0]
+            offh[0] = off = idx == 3 ? offh[0] - 1 : offh[idx];
+          } else off = offh[0];
+        }
+        buf.copyWithin(oubt, spl, spl += ll), oubt += ll;
+        let stin = oubt - off;
+        if (stin < 0) {
+          const bs = st.w.length + stin;
+          const match = st.w.subarray(bs, bs + ml);
+          buf.set(match, oubt), oubt += match.length;
+          ml += stin, stin = 0;
+        }
+        if (ml > 0) buf.copyWithin(oubt, stin, stin + ml), oubt += ml;
+      }
     } else if (spl) err(0);
+    st.b = bt;
     return buf;
   }
-  err(3);
-}  
+  err(2);
+}
