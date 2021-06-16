@@ -284,7 +284,7 @@ const rhu = (dat: Uint8Array, bt: number): [number, HDT] => {
     let st1 = 0, st2 = 0, btr1 = fdt.b, btr2 = btr1
     // fse pos
     // pre-increment to account for original deficit of 1
-    let fpos = (++bt << 3) - 16 + msb(lb);
+    let fpos = (++bt << 3) - 8 + msb(lb);
     for (;;) {
       fpos -= btr1;
       if (fpos < epos) break;
@@ -435,7 +435,7 @@ export const rzb = (dat: Uint8Array, st: DZstdState) => {
   const sz = (b0 >> 3) | (dat[bt + 1] << 5) | (dat[bt + 2] << 13);
   // end byte for block
   const ebt = (bt += 3) + sz;
-  if (btype == 0) return slc(dat, bt, st.b = bt + sz);
+  if (btype == 0) return slc(dat, bt, st.b = ebt);
   if (btype == 1) {
     st.b = bt + 1;
     return fill(new u8(sz), dat[bt]);
@@ -456,7 +456,7 @@ export const rzb = (dat: Uint8Array, st: DZstdState) => {
     }
     ++bt;
     // add literals to end - can never overlap with backreferences because unused literals always appended
-    const buf = new u8(st.m);
+    let buf = new u8(st.m);
     // starting point for literals
     let spl = st.m - lss;
     if (lbt == 0) buf.set(dat.subarray(bt, bt += lss), spl);
@@ -503,32 +503,36 @@ export const rzb = (dat: Uint8Array, st: DZstdState) => {
       }
       const [mlt, oct, llt] = st.t = dts;
       const lb = dat[ebt - 1], offh = new i32(3);
-      let spos = (ebt << 3) - 8 + msb(lb), oubt = 0;
-      let ost = 0, obtr = oct.b, mst = 0, mbtr = mlt.b, lst = 0, lbtr = llt.b;
+      if (!lb) err(0);
+      let spos = (ebt << 3) - 8 + msb(lb) - llt.b, cbt = spos >> 3, oubt = 0;
+      let lst = ((dat[cbt] | (dat[cbt + 1] << 8)) >> (spos & 7)) & ((1 << llt.b) - 1);
+      cbt = (spos -= oct.b) >> 3;
+      let ost = ((dat[cbt] | (dat[cbt + 1] << 8)) >> (spos & 7)) & ((1 << oct.b) - 1);
+      cbt = (spos -= mlt.b) >> 3;
+      let mst = ((dat[cbt] | (dat[cbt + 1] << 8)) >> (spos & 7)) & ((1 << mlt.b) - 1);
       for (++ns; --ns;) {
-        const lbt = (spos -= lbtr) >> 3;
-        lst += ((dat[lbt] | (dat[lbt + 1] << 8)) >> (spos & 7)) & ((1 << lbtr) - 1);
         const llc = llt.s[lst];
-        lbtr = llt.n[lst];
-        lst = llt.t[lst];
-        const lebt = (spos -= llb[llc]) >> 3;
-        const ll = llbl[llc] + (((dat[lebt] | (dat[lebt + 1] << 8) | (dat[lebt + 2] << 16)) >> (spos & 7)) & ((1 << llb[llc]) - 1));
-
-        const mbt = (spos -= mbtr) >> 3;
-        mst += ((dat[mbt] | (dat[mbt + 1] << 8)) >> (spos & 7)) & ((1 << mbtr) - 1);
+        const lbtr = llt.n[lst];
         const mlc = mlt.s[mst];
-        mbtr = mlt.n[mst];
-        mst = mlt.t[mst];
-        const mebt = (spos -= mlb[mlc]) >> 3;
-        let ml = mlbl[mlc] + (((dat[mebt] | (dat[mebt + 1] << 8) | (dat[mebt + 2] << 16)) >> (spos & 7)) & ((1 << mlb[mlc]) - 1));
-
-        const obt = (spos -= obtr) >> 3;
-        ost += ((dat[obt] | (dat[obt + 1] << 8)) >> (spos & 7)) & ((1 << obtr) - 1);
+        const mbtr = mlt.n[mst];
         const ofc = oct.s[ost];
-        obtr = oct.n[ost];
-        ost = oct.t[ost];
-        const oebt = (spos -= ofc) >> 3;
-        let off = (1 << ofc) + ((dat[oebt] | (dat[oebt + 1] << 8) | (dat[oebt + 2] << 16) | (dat[oebt + 3] << 24)) >>> (spos & 7));
+        const obtr = oct.n[ost];
+
+        cbt = (spos -= ofc) >> 3;
+        const ofp = 1 << ofc;
+        let off = ofp + (((dat[cbt] | (dat[cbt + 1] << 8) | (dat[cbt + 2] << 16) | (dat[cbt + 3] << 24)) >>> (spos & 7)) & (ofp - 1));
+        cbt = (spos -= mlb[mlc]) >> 3;
+        let ml = mlbl[mlc] + (((dat[cbt] | (dat[cbt + 1] << 8) | (dat[cbt + 2] << 16)) >> (spos & 7)) & ((1 << mlb[mlc]) - 1));
+        cbt = (spos -= llb[llc]) >> 3;
+        const ll = llbl[llc] + (((dat[cbt] | (dat[cbt + 1] << 8) | (dat[cbt + 2] << 16)) >> (spos & 7)) & ((1 << llb[llc]) - 1));
+
+        cbt = (spos -= lbtr) >> 3;
+        lst = llt.t[lst] + (((dat[cbt] | (dat[cbt + 1] << 8)) >> (spos & 7)) & ((1 << lbtr) - 1));
+        cbt = (spos -= mbtr) >> 3;
+        mst = mlt.t[mst] + (((dat[cbt] | (dat[cbt + 1] << 8)) >> (spos & 7)) & ((1 << mbtr) - 1));
+        cbt = (spos -= obtr) >> 3;
+        ost = oct.t[ost] + (((dat[cbt] | (dat[cbt + 1] << 8)) >> (spos & 7)) & ((1 << obtr) - 1));
+
         if (off > 3) {
           offh[2] = offh[1];
           offh[1] = offh[0];
@@ -536,23 +540,32 @@ export const rzb = (dat: Uint8Array, st: DZstdState) => {
         } else {
           const idx = off - ((ll != 0) as unknown as number);
           if (idx) {
+            off = idx == 3 ? offh[0] - 1 : offh[idx]
             if (idx > 1) offh[2] = offh[1];
             offh[1] = offh[0]
-            offh[0] = off = idx == 3 ? offh[0] - 1 : offh[idx];
+            offh[0] = off;
           } else off = offh[0];
         }
-        buf.copyWithin(oubt, spl, spl += ll), oubt += ll;
+        if (ll) {
+          buf.copyWithin(oubt, spl, spl += ll);
+          oubt += ll;
+        }
         let stin = oubt - off;
         if (stin < 0) {
           const bs = st.w.length + stin;
-          const match = st.w.subarray(bs, bs + ml);
-          buf.set(match, oubt), oubt += match.length;
-          ml += stin, stin = 0;
+          const match = st.w.subarray(bs, bs + ml), tml = match.length;
+          buf.set(match, oubt), oubt += tml;
+          ml -= tml, stin = 0;
         }
-        if (ml > 0) buf.copyWithin(oubt, stin, stin + ml), oubt += ml;
+        for (let i = 0; i < ml; ++i) {
+          buf[oubt + i] = buf[stin + i];
+        }
+        oubt += ml;
       }
+      buf.copyWithin(oubt, spl), oubt += st.m - spl;
+      buf = slc(buf, 0, oubt);
     } else if (spl) err(0);
-    st.b = bt;
+    st.b = ebt;
     return buf;
   }
   err(2);
