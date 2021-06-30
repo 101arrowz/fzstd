@@ -2,30 +2,15 @@
   "name": "fzstd",
   "version": "0.0.1",
   "description": "High performance Zstandard (de)compression",
-  "main": "./lib/index.cjs",
-  "module": "./esm/browser.js",
+  "main": "./lib/index.js",
+  "module": "./esm/index.js",
   "types": "./lib/index.d.ts",
   "unpkg": "./umd/index.js",
   "jsdelivr": "./umd/index.js",
-  "browser": {
-    "./lib/node-worker.cjs": "./lib/worker.cjs"
-  },
   "exports": {
     ".": {
-      "node": {
-        "import": "./esm/index.mjs",
-        "require": "./lib/node.cjs"
-      },
-      "import": "./esm/browser.js",
-      "require": "./lib/index.cjs"
-    },
-    "./node": {
-      "import": "./esm/index.mjs",
-      "require": "./lib/node.cjs"
-    },
-    "./browser": {
-      "import": "./esm/browser.js",
-      "require": "./lib/browser.cjs"
+      "import": "./esm/index.js",
+      "require": "./lib/index.js"
     }
   },
   "targets": {
@@ -54,13 +39,11 @@
     "non-blocking"
   ],
   "scripts": {
-    "build": "yarn build:lib && yarn build:docs && yarn build:demo",
+    "build": "yarn build:lib",
     "script": "node -r ts-node/register scripts/$SC.ts",
     "build:lib": "tsc && tsc --project tsconfig.esm.json && yarn build:rewrite && yarn build:umd",
     "build:umd": "SC=buildUMD yarn script",
     "build:rewrite": "SC=rewriteBuilds yarn script",
-    "build:demo": "tsc --project tsconfig.demo.json && parcel build demo/index.html --public-url \"./\" && SC=cpGHPages yarn script",
-    "build:docs": "typedoc --mode library --plugin typedoc-plugin-markdown --hideProjectName --hideBreadcrumbs --readme none --disableSources --excludePrivate --excludeProtected --out docs/ src/index.ts",
     "test": "TS_NODE_PROJECT=test/tsconfig.json uvu -b -r ts-node/register test",
     "prepack": "yarn build && yarn test"
   },

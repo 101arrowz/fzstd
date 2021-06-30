@@ -1,7 +1,5 @@
 // Some numerical data is initialized as -1 even when it doesn't need initialization to help the JIT infer types
 
-import wk from './node-worker';
-
 // aliases for shorter compressed code (most minifers don't do this)
 const ab = ArrayBuffer, u8 = Uint8Array, u16 = Uint16Array, i16 = Int16Array, u32 = Uint32Array, i32 = Int32Array;
 
@@ -25,30 +23,28 @@ interface FSEDT extends HDT {
 interface DZstdState {
   // byte
   b: number;
+  // out byte
+  y: number;
   // dictionary ID
-  readonly d: number;
+  d: number;
   // window
-  readonly w: Uint8Array;
+  w: Uint8Array;
   // max block size
-  readonly m: number;
+  m: number;
   // uncompressed size
-  readonly u: number;
+  u: number;
   // has checksum
-  readonly c: number;
+  c: number;
+  // offsets
+  o: Int32Array;
+  // window head
+  e: number;
   // last huffman decoding table
   h?: HDT;
   // last FSE decoding tables
   t?: [FSEDT, FSEDT, FSEDT];
   // last block
   l: number;
-}
-
-// Walmart object spread
-const mrg = <A, B>(a: A, b: B) => {
-  const o = {} as Record<string, unknown>;
-  for (const k in a) o[k] = a[k];
-  for (const k in b) o[k] = b[k];
-  return o as A & B;
 }
 
 const slc = <T extends Uint8Array | Uint16Array | Uint32Array>(v: T, s: number, e?: number): T => {
@@ -120,7 +116,7 @@ const rb = (d: Uint8Array, b: number, n: number) => {
 const b4 = (d: Uint8Array, b: number) => (d[b] | (d[b + 1] << 8) | (d[b + 2] << 16) | (d[b + 3] << 24)) >>> 0;
 
 // read Zstandard frame header
-export const rzfh = (dat: Uint8Array): number | DZstdState => {
+const rzfh = (dat: Uint8Array, w?: Uint8Array | 1): number | DZstdState => {
   const n3 = dat[0] | (dat[1] << 8) | (dat[2] << 16);
   if (n3 == 0x2FB528 && dat[3] == 253) {
     // Zstandard
@@ -147,11 +143,16 @@ export const rzfh = (dat: Uint8Array): number | DZstdState => {
       ws = wb + (wb >> 3) * (dat[5] & 7);
     }
     if (ws > 2145386496) err(1);
+    const buf = new u8((w == 1 ? (fss || ws) : w ? 0 : ws) + 12);
+    buf[0] = 1, buf[4] = 4, buf[8] = 8;
     return {
       b: bt + fsb,
+      y: 0,
       l: 0,
       d: di,
-      w: new u8(ws),
+      w: (w && w != 1) ? w : buf.subarray(12),
+      e: ws,
+      o: new i32(buf.buffer, 0, 3),
       u: fss,
       c: cc,
       m: Math.min(131072, ws)
@@ -427,7 +428,7 @@ const dhu4 = (dat: Uint8Array, out: Uint8Array, hu: HDT) => {
 }
 
 // read Zstandard block
-export const rzb = (dat: Uint8Array, st: DZstdState) => {
+const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
   let bt = st.b;
   //    byte 0        block type
   const b0 = dat[bt], btype = (b0 >> 1) & 3;
@@ -435,9 +436,21 @@ export const rzb = (dat: Uint8Array, st: DZstdState) => {
   const sz = (b0 >> 3) | (dat[bt + 1] << 5) | (dat[bt + 2] << 13);
   // end byte for block
   const ebt = (bt += 3) + sz;
-  if (btype == 0) return slc(dat, bt, st.b = ebt);
+  if (btype == 0) {
+    st.b = ebt;
+    if (out) {
+      out.set(dat.subarray(bt, ebt), st.y);
+      st.y += sz;
+      return out;
+    }
+    return slc(dat, bt, ebt);
+  }
   if (btype == 1) {
     st.b = bt + 1;
+    if (out) {
+      fill(out, dat[bt], st.y, st.y += sz);
+      return out;
+    }
     return fill(new u8(sz), dat[bt]);
   }
   if (btype == 2) {
@@ -456,11 +469,11 @@ export const rzb = (dat: Uint8Array, st: DZstdState) => {
     }
     ++bt;
     // add literals to end - can never overlap with backreferences because unused literals always appended
-    let buf = new u8(st.m);
+    let buf = out ? out.subarray(st.y) : new u8(st.m);
     // starting point for literals
-    let spl = st.m - lss;
+    let spl = buf.length - lss;
     if (lbt == 0) buf.set(dat.subarray(bt, bt += lss), spl);
-    else if (lbt == 1) fill(buf, dat[bt++], spl, st.m);
+    else if (lbt == 1) fill(buf, dat[bt++], spl);
     else {
       // huffman table
       let hu = st.h;
@@ -502,7 +515,7 @@ export const rzb = (dat: Uint8Array, st: DZstdState) => {
         }
       }
       const [mlt, oct, llt] = st.t = dts;
-      const lb = dat[ebt - 1], offh = new i32(3);
+      const lb = dat[ebt - 1];
       if (!lb) err(0);
       let spos = (ebt << 3) - 8 + msb(lb) - llt.b, cbt = spos >> 3, oubt = 0;
       let lst = ((dat[cbt] | (dat[cbt + 1] << 8)) >> (spos & 7)) & ((1 << llt.b) - 1);
@@ -534,39 +547,141 @@ export const rzb = (dat: Uint8Array, st: DZstdState) => {
         ost = oct.t[ost] + (((dat[cbt] | (dat[cbt + 1] << 8)) >> (spos & 7)) & ((1 << obtr) - 1));
 
         if (off > 3) {
-          offh[2] = offh[1];
-          offh[1] = offh[0];
-          offh[0] = off -= 3;
+          st.o[2] = st.o[1];
+          st.o[1] = st.o[0];
+          st.o[0] = off -= 3;
         } else {
           const idx = off - ((ll != 0) as unknown as number);
           if (idx) {
-            off = idx == 3 ? offh[0] - 1 : offh[idx]
-            if (idx > 1) offh[2] = offh[1];
-            offh[1] = offh[0]
-            offh[0] = off;
-          } else off = offh[0];
+            off = idx == 3 ? st.o[0] - 1 : st.o[idx]
+            if (idx > 1) st.o[2] = st.o[1];
+            st.o[1] = st.o[0]
+            st.o[0] = off;
+          } else off = st.o[0];
         }
-        if (ll) {
-          buf.copyWithin(oubt, spl, spl += ll);
-          oubt += ll;
+        for (let i = 0; i < ll; ++i) {
+          buf[oubt + i] = buf[spl + i];
         }
+        oubt += ll, spl += ll;
         let stin = oubt - off;
         if (stin < 0) {
-          const bs = st.w.length + stin;
-          const match = st.w.subarray(bs, bs + ml), tml = match.length;
-          buf.set(match, oubt), oubt += tml;
-          ml -= tml, stin = 0;
+          let len = -stin;
+          const bs = st.e + stin;
+          if (len > ml) len = ml;
+          for (let i = 0; i < len; ++i) {
+            buf[oubt + i] = st.w[bs + i];
+          }
+          oubt += len, ml -= len, stin = 0;
         }
         for (let i = 0; i < ml; ++i) {
           buf[oubt + i] = buf[stin + i];
         }
-        oubt += ml;
+        oubt += ml
       }
-      buf.copyWithin(oubt, spl), oubt += st.m - spl;
-      buf = slc(buf, 0, oubt);
-    } else if (spl) err(0);
+      if (oubt != spl) {
+        while (spl < buf.length) {
+          buf[oubt++] = buf[spl++];
+        }
+      } else oubt = buf.length;
+      if (out) st.y += oubt;
+      else buf = slc(buf, 0, oubt);
+    } else {
+      if (out) {
+        st.y += lss;
+        if (spl) {
+          for (let i = 0; i < lss; ++i) {
+            buf[i] = buf[spl + i];
+          }
+        }
+      } else if (spl) buf = slc(buf, spl);
+    }
     st.b = ebt;
     return buf;
   }
   err(2);
+}
+
+/**
+ * Decompresses Zstandard data
+ * @param dat The input data
+ * @param buf The output buffer. If unspecified, the function will allocate
+ *            exactly enough memory to fit the decompressed data. If your
+ *            data has multiple frames and you know the output size, specifying
+ *            it will yield better performance.
+ * @returns The decompressed data
+ */
+export function decompress(dat: Uint8Array, buf?: Uint8Array) {
+  let bt = 0, bufs: Uint8Array[] = [], nb = +!buf as 0 | 1, ol = 0;
+  for (; dat.length;) {
+    let st = rzfh(dat, nb || buf);
+    if (typeof st == 'object') {
+      if (nb) {
+        buf = null;
+        if (st.w.length == st.u) {
+          bufs.push(buf = st.w);
+          ol += st.u;
+        }
+      } else {
+        bufs.push(buf);
+        st.e = 0;
+      }
+      for (; !st.l;) {
+        const blk = rzb(dat, st, buf);
+        if (buf) st.e = st.y;
+        else {
+          bufs.push(blk);
+          ol += blk.length;
+          st.w.copyWithin(0, blk.length);
+          st.w.set(blk, st.w.length - blk.length);
+        }
+      }
+      bt = st.b + (st.c && 4);
+    } else bt = st;
+    dat = dat.subarray(bt);
+  }
+  if (nb && (!buf || bufs.length != 1)) {
+    buf = new u8(ol);
+    for (let i = 0, b = 0; i < bufs.length; ++i) {
+      const chk = bufs[i];
+      buf.set(chk, b);
+      b += chk.length;
+    }
+  }
+  return buf;
+}
+
+// TODO
+
+/**
+ * Callback to handle data in Zstandard streams
+ * @param data The data that was (de)compressed
+ * @param final Whether this is the last chunk in the stream
+ */
+type ZstdStreamHandler = (data: Uint8Array, final?: boolean) => unknown;
+
+/**
+ * Decompressor for Zstandard streamed data
+ */
+class Decompress {
+  /**
+   * Creates a Zstandard decompressor
+   * @param ondata The handler for stream data
+   */
+  constructor(ondata?: ZstdStreamHandler) {
+    this.ondata = ondata;
+  }
+
+  /**
+   * Pushes data to be decompressed
+   * @param chunk The chunk of data to push
+   * @param final Whether or not this is the last chunk in the stream
+   */
+  push(chunk: Uint8Array, final?: boolean) {
+
+  }
+
+  /**
+   * Handler called whenever data is decompressed
+   */
+  ondata: ZstdStreamHandler;
 }
