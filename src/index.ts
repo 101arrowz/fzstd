@@ -47,24 +47,30 @@ interface DZstdState {
   l: number;
 }
 
-const slc = <T extends Uint8Array | Uint16Array | Uint32Array>(v: T, s: number, e?: number): T => {
-  // can't use .constructor in case user-supplied
-  const ctr = v instanceof u8 ? u8 : v instanceof u16 ? u16 : u32;
-  if (ctr.prototype.slice) return ctr.prototype.slice.call(v, s, e);
+const slc = (v: Uint8Array, s: number, e?: number) => {
+  if (u8.prototype.slice) return u8.prototype.slice.call(v, s, e);
   if (s == null || s < 0) s = 0;
   if (e == null || e > v.length) e = v.length;
-  const n = new (v instanceof u8 ? u8 : v instanceof u16 ? u16 : u32)(e - s) as T;
+  const n = new u8(e - s);
   n.set(v.subarray(s, e));
   return n;
 }
 
-const fill = <T extends Uint8Array | Uint16Array | Uint32Array>(v: T, n: number, s?: number, e?: number): T => {
-  const ctr = v instanceof u8 ? u8 : v instanceof u16 ? u16 : u32;
-  if (ctr.prototype.fill) return ctr.prototype.fill.call(v, n, s, e);
+const fill = (v: Uint8Array, n: number, s?: number, e?: number) => {
+  if (u8.prototype.fill) return u8.prototype.fill.call(v, n, s, e);
   if (s == null || s < 0) s = 0;
   if (e == null || e > v.length) e = v.length;
   for (; s < e; ++s) v[s] = n;
   return v;
+}
+
+const cpw = (v: Uint8Array, t: number, s?: number, e?: number) => {
+  if (u8.prototype.copyWithin) return u8.prototype.copyWithin.call(v, t, s, e);
+  if (s == null || s < 0) s = 0;
+  if (e == null || e > v.length) e = v.length;
+  while (s < e) {
+    v[t++] = v[s++];
+  }
 }
 
 /**
@@ -631,7 +637,7 @@ export function decompress(dat: Uint8Array, buf?: Uint8Array) {
         else {
           bufs.push(blk);
           ol += blk.length;
-          st.w.copyWithin(0, blk.length);
+          cpw(st.w, 0, blk.length);
           st.w.set(blk, st.w.length - blk.length);
         }
       }
