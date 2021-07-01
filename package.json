@@ -1,6 +1,6 @@
 {
   "name": "fzstd",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "High performance Zstandard (de)compression",
   "main": "./lib/index.js",
   "module": "./esm/index.js",
@@ -44,8 +44,7 @@
     "build:lib": "tsc && tsc --project tsconfig.esm.json && yarn build:rewrite && yarn build:umd",
     "build:umd": "SC=buildUMD yarn script",
     "build:rewrite": "SC=rewriteBuilds yarn script",
-    "test": "TS_NODE_PROJECT=test/tsconfig.json uvu -b -r ts-node/register test",
-    "prepack": "yarn build && yarn test"
+    "prepack": "yarn build"
   },
   "devDependencies": {
     "@types/node": "^14.11.2",
