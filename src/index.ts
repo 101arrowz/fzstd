@@ -81,7 +81,8 @@ export const ZstdErrorCode = {
   WindowSizeTooLarge: 1,
   InvalidBlockType: 2,
   FSEAccuracyTooHigh: 3,
-  DistanceTooFarBack: 4
+  DistanceTooFarBack: 4,
+  UnexpectedEOF: 5
 } as const;
 
 type ZEC = (typeof ZstdErrorCode)[keyof typeof ZstdErrorCode];
@@ -92,7 +93,8 @@ const ec: Record<ZEC, string | undefined> = [
   'window size too large (>2046MB)',
   'invalid block type',
   'FSE accuracy too high',
-  'match distance too far back'
+  'match distance too far back',
+  'unexpected EOF'
 ];
 
 /**
@@ -442,6 +444,16 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
   const sz = (b0 >> 3) | (dat[bt + 1] << 5) | (dat[bt + 2] << 13);
   // end byte for block
   const ebt = (bt += 3) + sz;
+  if (btype == 1) {
+    if (bt >= dat.length) return;
+    st.b = bt + 1;
+    if (out) {
+      fill(out, dat[bt], st.y, st.y += sz);
+      return out;
+    }
+    return fill(new u8(sz), dat[bt]);
+  }
+  if (ebt > dat.length) return;
   if (btype == 0) {
     st.b = ebt;
     if (out) {
@@ -450,14 +462,6 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
       return out;
     }
     return slc(dat, bt, ebt);
-  }
-  if (btype == 1) {
-    st.b = bt + 1;
-    if (out) {
-      fill(out, dat[bt], st.y, st.y += sz);
-      return out;
-    }
-    return fill(new u8(sz), dat[bt]);
   }
   if (btype == 2) {
     //    byte 3        lit btype     size format
@@ -475,7 +479,7 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
     }
     ++bt;
     // add literals to end - can never overlap with backreferences because unused literals always appended
-    let buf = out ? out.subarray(st.y) : new u8(st.m);
+    let buf = out ? out.subarray(st.y, st.y + st.m) : new u8(st.m);
     // starting point for literals
     let spl = buf.length - lss;
     if (lbt == 0) buf.set(dat.subarray(bt, bt += lss), spl);
@@ -607,6 +611,18 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
   err(2);
 }
 
+// concat
+const cct = (bufs: Uint8Array[], ol: number) => {
+  if (bufs.length == 1) return bufs[0];
+  const buf = new u8(ol);
+  for (let i = 0, b = 0; i < bufs.length; ++i) {
+    const chk = bufs[i];
+    buf.set(chk, b);
+    b += chk.length;
+  }
+  return buf;
+}
+
 /**
  * Decompresses Zstandard data
  * @param dat The input data
@@ -633,6 +649,7 @@ export function decompress(dat: Uint8Array, buf?: Uint8Array) {
       }
       for (; !st.l;) {
         const blk = rzb(dat, st, buf);
+        if (!blk) err(5);
         if (buf) st.e = st.y;
         else {
           bufs.push(blk);
@@ -641,40 +658,37 @@ export function decompress(dat: Uint8Array, buf?: Uint8Array) {
           st.w.set(blk, st.w.length - blk.length);
         }
       }
-      bt = st.b + (st.c && 4);
+      bt = st.b + (st.c * 4);
     } else bt = st;
     dat = dat.subarray(bt);
   }
-  if (nb && (!buf || bufs.length != 1)) {
-    buf = new u8(ol);
-    for (let i = 0, b = 0; i < bufs.length; ++i) {
-      const chk = bufs[i];
-      buf.set(chk, b);
-      b += chk.length;
-    }
-  }
-  return buf;
+  return cct(bufs, ol);
 }
-
-// TODO
 
 /**
  * Callback to handle data in Zstandard streams
  * @param data The data that was (de)compressed
  * @param final Whether this is the last chunk in the stream
  */
-type ZstdStreamHandler = (data: Uint8Array, final?: boolean) => unknown;
+export type ZstdStreamHandler = (data: Uint8Array, final?: boolean) => unknown;
 
 /**
  * Decompressor for Zstandard streamed data
  */
-class Decompress {
+export class Decompress {
+  private s: DZstdState | number;
+  private c: Uint8Array[];
+  private l: number;
+  private z: number;
   /**
    * Creates a Zstandard decompressor
    * @param ondata The handler for stream data
    */
   constructor(ondata?: ZstdStreamHandler) {
     this.ondata = ondata;
+    this.c = [];
+    this.l = 0;
+    this.z = 0;
   }
 
   /**
@@ -683,7 +697,71 @@ class Decompress {
    * @param final Whether or not this is the last chunk in the stream
    */
   push(chunk: Uint8Array, final?: boolean) {
-
+    if (typeof this.s == 'number') {
+      const sub = Math.min(chunk.length, this.s as number);
+      chunk = chunk.subarray(sub);
+      (this.s as number) -= sub;
+    }
+    const sl = chunk.length;
+    const ncs = sl + this.l;
+    if (!this.s) {
+      if (final) {
+        if (!ncs) return;
+        // min for frame + one block
+        if (ncs < 5) err(5);
+      } else if (ncs < 18) {
+        this.c.push(chunk);
+        this.l = ncs;
+        return;
+      }
+      if (this.l) {
+        this.c.push(chunk);
+        chunk = cct(this.c, ncs);
+        this.c = [];
+        this.l = 0;
+      }
+      if (typeof (this.s = rzfh(chunk)) == 'number') return this.push(chunk, final);
+    }
+    if (typeof this.s != 'number') {
+      if (ncs < (this.z || 4)) {
+        if (final) err(5);
+        this.c.push(chunk);
+        this.l = ncs;
+        return;
+      }
+      if (this.l) {
+        this.c.push(chunk);
+        chunk = cct(this.c, ncs);
+        this.c = [];
+        this.l = 0;
+      }
+      if (!this.z && ncs < (this.z = (chunk[(this.s as DZstdState).b] & 2) ? 5 : 4 + ((chunk[(this.s as DZstdState).b] >> 3) | (chunk[(this.s as DZstdState).b + 1] << 5) | (chunk[(this.s as DZstdState).b + 2] << 13)))) {
+        if (final) err(5);
+        this.c.push(chunk);
+        this.l = ncs;
+        return;
+      } else this.z = 0;
+      for (;;) {
+        const blk = rzb(chunk, this.s as DZstdState);
+        if (!blk) {
+          if (final) err(5);
+          const adc = chunk.subarray((this.s as DZstdState).b);
+          (this.s as DZstdState).b = 0;
+          this.c.push(adc), this.l += adc.length;
+          return;
+        } else {
+          this.ondata(blk, false);
+          cpw((this.s as DZstdState).w, 0, blk.length);
+          (this.s as DZstdState).w.set(blk, (this.s as DZstdState).w.length - blk.length);
+        }
+        if ((this.s as DZstdState).l) {
+          const rest = chunk.subarray((this.s as DZstdState).b);
+          this.s = (this.s as DZstdState).c * 4;
+          this.push(rest, final);
+          return;
+        }
+      }
+    }
   }
 
   /**

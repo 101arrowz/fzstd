@@ -1,5 +1,5 @@
 # fzstd
-High performance Zstandard decompression in a pure JavaScript, 7kB package
+High performance Zstandard decompression in a pure JavaScript, 8kB package
 
 ## Usage
 
@@ -55,14 +55,13 @@ const decompressed = fzstd.decompress(compressed);
 
 // Second argument is optional: custom output buffer
 const outBuf = new Uint8Array(100000);
-// IMPORTANT: fzstd will assume access to the entire buffer is allowed, i.e.
-// it may write random data outside the boundaries of the decompressed result.
-// It is highly recommended to only specify this if you know the output size.
+// IMPORTANT: fzstd will assume the buffer is sufficiently sized, so it
+// will yield corrupt data if the buffer is too small. It is highly
+// recommended to only specify this if you know the maximum output size.
 fzstd.decompress(compressed, outBuf);
 ```
 
 You can also use data streams to minimize memory usage while decompressing.
-**NOTE: This API is not available yet; it will be released in the near future.**
 ```js
 let outChunks = [];
 const stream = new fzstd.Decompress((chunk, isLast) => {
@@ -92,6 +91,6 @@ stream.push(chunkLast, true);
 ```
 
 ## Considerations
-Unlike my Zlib implementation [`fflate`](https://github.com/101arrowz/fflate), WebAssembly ports of Zstandard are usually significantly faster than `fzstd`. However, they fail to decompress most archives without the decompressed size provided in advance. Moreover, they do not support streaming and thereby allocate a large amount of memory that cannot be freed. Lastly, `fzstd` is absolutely tiny: at 7kB minified and 3.4kB after gzipping, it's much smaller than most WASM implementations.
+Unlike my Zlib implementation [`fflate`](https://github.com/101arrowz/fflate), WebAssembly ports of Zstandard are usually significantly faster than `fzstd`. However, they fail to decompress most archives without the decompressed size provided in advance. Moreover, they do not support streaming and thereby allocate a large amount of memory that cannot be freed. Lastly, `fzstd` is absolutely tiny: at 8kB minified and 3.8kB after gzipping, it's much smaller than most WASM implementations.
 
 Please note that unlike the reference implementation, `fzstd` only supports a maximum backreference distance of 2<sup>25</sup> bytes. If you need to decompress files with a very high compression level (19 or greater) AND if your files can be above 32MB decompressed, `fzstd` *might* fail to decompress properly. Consider using a WebAssembly port for files this large (though this may be difficult if you don't know the decompressed size).
