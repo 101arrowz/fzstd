@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 const atClass = /\/\*\* \@class \*\//g, pure = '/*#__PURE__*/';
 
@@ -9,5 +9,7 @@ writeFileSync(libIndex, readFileSync(libIndex, 'utf-8')
   .replace(/exports\.(.*) = void 0;\n/, '')
 );
 
-const esmIndex = join(__dirname, '..', 'esm', 'index.js')
-writeFileSync(esmIndex, readFileSync(esmIndex, 'utf-8').replace(atClass, pure));
+const esm = join(__dirname, '..', 'esm');
+const esmIndex = join(esm, 'index.js');
+writeFileSync(join(esm, 'index.mjs'), readFileSync(esmIndex, 'utf-8').replace(atClass, pure));
+unlinkSync(esmIndex);

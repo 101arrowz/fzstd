@@ -41,10 +41,9 @@
   "scripts": {
     "build": "yarn build:lib",
     "script": "node -r ts-node/register scripts/$SC.ts",
-    "build:lib": "tsc && tsc --project tsconfig.esm.json && yarn build:rewrite && yarn build:umd && yarn rename:mjs",
+    "build:lib": "tsc && tsc --project tsconfig.esm.json && yarn build:rewrite && yarn build:umd",
     "build:umd": "SC=buildUMD yarn script",
     "build:rewrite": "SC=rewriteBuilds yarn script",
-    "rename:mjs": "mv esm/index.js esm/index.mjs",
     "prepack": "yarn build"
   },
   "devDependencies": {
