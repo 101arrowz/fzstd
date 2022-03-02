@@ -44,7 +44,7 @@
     "build:lib": "tsc && tsc --project tsconfig.esm.json && yarn build:rewrite && yarn build:umd",
     "build:umd": "SC=buildUMD yarn script",
     "build:rewrite": "SC=rewriteBuilds yarn script",
-    "prepack": "yarn build"
+    "prepack": "yarn build:lib"
   },
   "devDependencies": {
     "@types/node": "^14.11.2",
