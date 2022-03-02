@@ -45,7 +45,7 @@
     "build:umd": "SC=buildUMD yarn script",
     "build:rewrite": "SC=rewriteBuilds yarn script",
     "rename:mjs": "mv esm/index.js esm/index.mjs",
-    "prepack": "yarn build:lib"
+    "prepack": "yarn build"
   },
   "devDependencies": {
     "@types/node": "^14.11.2",
