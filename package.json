@@ -9,6 +9,7 @@
   "jsdelivr": "./umd/index.js",
   "exports": {
     ".": {
+      "types": "./lib/index.d.ts",
       "import": "./esm/index.mjs",
       "require": "./lib/index.js"
     }
