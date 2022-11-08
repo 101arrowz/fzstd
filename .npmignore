@@ -3,4 +3,3 @@
 !lib/
 !umd/
 tsconfig*.json
-.parcelrc
