@@ -105,7 +105,7 @@ export interface ZstdError extends Error {
    * The code associated with this error
    */
   code: ZEC;
-};
+}
 
 const err = (ind: ZEC, msg?: string | 0, nt?: 1) => {
   const e: Partial<ZstdError> = new Error(msg || ec[ind]);
