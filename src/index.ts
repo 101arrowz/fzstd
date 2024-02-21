@@ -54,7 +54,7 @@ const slc = (v: Uint8Array, s: number, e?: number) => {
   const n = new u8(e - s);
   n.set(v.subarray(s, e));
   return n;
-}
+};
 
 const fill = (v: Uint8Array, n: number, s?: number, e?: number) => {
   if (u8.prototype.fill) return u8.prototype.fill.call(v, n, s, e);
@@ -62,7 +62,7 @@ const fill = (v: Uint8Array, n: number, s?: number, e?: number) => {
   if (e == null || e > v.length) e = v.length;
   for (; s < e; ++s) v[s] = n;
   return v;
-}
+};
 
 const cpw = (v: Uint8Array, t: number, s?: number, e?: number) => {
   if (u8.prototype.copyWithin) return u8.prototype.copyWithin.call(v, t, s, e);
@@ -71,7 +71,7 @@ const cpw = (v: Uint8Array, t: number, s?: number, e?: number) => {
   while (s < e) {
     v[t++] = v[s++];
   }
-}
+};
 
 /**
  * Codes for errors generated within this library
@@ -105,7 +105,7 @@ export interface ZstdError extends Error {
    * The code associated with this error
    */
   code: ZEC;
-};
+}
 
 const err = (ind: ZEC, msg?: string | 0, nt?: 1) => {
   const e: Partial<ZstdError> = new Error(msg || ec[ind]);
@@ -113,13 +113,13 @@ const err = (ind: ZEC, msg?: string | 0, nt?: 1) => {
   if (Error.captureStackTrace) Error.captureStackTrace(e, err);
   if (!nt) throw e;
   return e as ZstdError;
-}
+};
 
 const rb = (d: Uint8Array, b: number, n: number) => {
   let i = 0, o = 0;
   for (; i < n; ++i) o |= d[b++] << (i << 3);
   return o;
-}
+};
 
 const b4 = (d: Uint8Array, b: number) => (d[b] | (d[b + 1] << 8) | (d[b + 2] << 16) | (d[b + 3] << 24)) >>> 0;
 
@@ -170,14 +170,14 @@ const rzfh = (dat: Uint8Array, w?: Uint8Array | 1): number | DZstdState => {
     return b4(dat, 4) + 8;
   }
   err(0);
-}
+};
 
 // most significant bit for nonzero
 const msb = (val: number) => {
   let bits = 0;
   for (; (1 << bits) <= val; ++bits);
   return bits - 1;
-}
+};
 
 // read finite state entropy
 const rfse = (dat: Uint8Array, bt: number, mal: number): [number, FSEDT] => {
@@ -266,7 +266,7 @@ const rfse = (dat: Uint8Array, bt: number, mal: number): [number, FSEDT] => {
     n: nbits,
     t: nstate
   }];
-}
+};
 
 // read huffman
 const rhu = (dat: Uint8Array, bt: number): [number, HDT] => {
@@ -290,7 +290,7 @@ const rhu = (dat: Uint8Array, bt: number): [number, HDT] => {
     const lb = dat[bt];
     if (!lb) err(0);
     //  state1   state2   state1 bits   state2 bits
-    let st1 = 0, st2 = 0, btr1 = fdt.b, btr2 = btr1
+    let st1 = 0, st2 = 0, btr1 = fdt.b, btr2 = btr1;
     // fse pos
     // pre-increment to account for original deficit of 1
     let fpos = (++bt << 3) - 8 + msb(lb);
@@ -363,7 +363,7 @@ const rhu = (dat: Uint8Array, bt: number): [number, HDT] => {
     b: mb,
     s: syms
   }];
-}
+};
 
 // Tables generated using this:
 // https://gist.github.com/101arrowz/a979452d4355992cbf8f257cbffc9edd
@@ -391,7 +391,7 @@ const b2bl = (b: Uint8Array, s: number) => {
     s += 1 << b[i];
   }
   return bl;
-}
+};
 
 // literal length bits
 const llb = /*#__PURE__ */ new u8((/*#__PURE__ */ new i32([
@@ -422,7 +422,7 @@ const dhu = (dat: Uint8Array, out: Uint8Array, hu: HDT) => {
     pos -= (btr = hu.n[st]);
   }
   if (pos != eb || i + 1 != ss) err(0);
-}
+};
 
 // decode huffman stream 4x
 // TODO: use workers to parallelize
@@ -433,7 +433,7 @@ const dhu4 = (dat: Uint8Array, out: Uint8Array, hu: HDT) => {
   dhu(dat.subarray(bt, bt += dat[2] | (dat[3] << 8)), out.subarray(sz1, sz2), hu);
   dhu(dat.subarray(bt, bt += dat[4] | (dat[5] << 8)), out.subarray(sz2, sz3), hu);
   dhu(dat.subarray(bt), out.subarray(sz3), hu);
-}
+};
 
 // read Zstandard block
 const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
@@ -504,7 +504,7 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
       // symbol compression modes
       const scm = dat[bt++];
       if (scm & 3) err(0);
-      let dts: [FSEDT, FSEDT, FSEDT] = [dmlt, doct, dllt];
+      const dts: [FSEDT, FSEDT, FSEDT] = [dmlt, doct, dllt];
       for (let i = 2; i > -1; --i) {
         const md = (scm >> ((i << 1) + 2)) & 3;
         if (md == 1) {
@@ -563,9 +563,9 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
         } else {
           const idx = off - ((ll != 0) as unknown as number);
           if (idx) {
-            off = idx == 3 ? st.o[0] - 1 : st.o[idx]
+            off = idx == 3 ? st.o[0] - 1 : st.o[idx];
             if (idx > 1) st.o[2] = st.o[1];
-            st.o[1] = st.o[0]
+            st.o[1] = st.o[0];
             st.o[0] = off;
           } else off = st.o[0];
         }
@@ -586,7 +586,7 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
         for (let i = 0; i < ml; ++i) {
           buf[oubt + i] = buf[stin + i];
         }
-        oubt += ml
+        oubt += ml;
       }
       if (oubt != spl) {
         while (spl < buf.length) {
@@ -595,21 +595,19 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
       } else oubt = buf.length;
       if (out) st.y += oubt;
       else buf = slc(buf, 0, oubt);
-    } else {
-      if (out) {
-        st.y += lss;
-        if (spl) {
-          for (let i = 0; i < lss; ++i) {
-            buf[i] = buf[spl + i];
-          }
+    } else if (out) {
+      st.y += lss;
+      if (spl) {
+        for (let i = 0; i < lss; ++i) {
+          buf[i] = buf[spl + i];
         }
-      } else if (spl) buf = slc(buf, spl);
-    }
+      }
+    } else if (spl) buf = slc(buf, spl);
     st.b = ebt;
     return buf;
   }
   err(2);
-}
+};
 
 // concat
 const cct = (bufs: Uint8Array[], ol: number) => {
@@ -621,7 +619,7 @@ const cct = (bufs: Uint8Array[], ol: number) => {
     b += chk.length;
   }
   return buf;
-}
+};
 
 /**
  * Decompresses Zstandard data
@@ -633,9 +631,10 @@ const cct = (bufs: Uint8Array[], ol: number) => {
  * @returns The decompressed data
  */
 export function decompress(dat: Uint8Array, buf?: Uint8Array) {
-  let bt = 0, bufs: Uint8Array[] = [], nb = +!buf as 0 | 1, ol = 0;
+  const bufs: Uint8Array[] = [], nb = +!buf as 0 | 1;
+  let bt = 0, ol = 0;
   for (; dat.length;) {
-    let st = rzfh(dat, nb || buf);
+    const st = rzfh(dat, nb || buf);
     if (typeof st == 'object') {
       if (nb) {
         buf = null;
