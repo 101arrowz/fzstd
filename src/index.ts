@@ -504,7 +504,7 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
       // symbol compression modes
       const scm = dat[bt++];
       if (scm & 3) err(0);
-      let dts: [FSEDT, FSEDT, FSEDT] = [dmlt, doct, dllt];
+      const dts: [FSEDT, FSEDT, FSEDT] = [dmlt, doct, dllt];
       for (let i = 2; i > -1; --i) {
         const md = (scm >> ((i << 1) + 2)) & 3;
         if (md == 1) {
@@ -633,9 +633,10 @@ const cct = (bufs: Uint8Array[], ol: number) => {
  * @returns The decompressed data
  */
 export function decompress(dat: Uint8Array, buf?: Uint8Array) {
-  let bt = 0, bufs: Uint8Array[] = [], nb = +!buf as 0 | 1, ol = 0;
+  const bufs: Uint8Array[] = [], nb = +!buf as 0 | 1;
+  let bt = 0, ol = 0;
   for (; dat.length;) {
-    let st = rzfh(dat, nb || buf);
+    const st = rzfh(dat, nb || buf);
     if (typeof st == 'object') {
       if (nb) {
         buf = null;
