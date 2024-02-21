@@ -595,16 +595,14 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
       } else oubt = buf.length;
       if (out) st.y += oubt;
       else buf = slc(buf, 0, oubt);
-    } else {
-      if (out) {
-        st.y += lss;
-        if (spl) {
-          for (let i = 0; i < lss; ++i) {
-            buf[i] = buf[spl + i];
-          }
+    } else if (out) {
+      st.y += lss;
+      if (spl) {
+        for (let i = 0; i < lss; ++i) {
+          buf[i] = buf[spl + i];
         }
-      } else if (spl) buf = slc(buf, spl);
-    }
+      }
+    } else if (spl) buf = slc(buf, spl);
     st.b = ebt;
     return buf;
   }
