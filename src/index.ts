@@ -705,7 +705,10 @@ export class Decompress {
     const ncs = sl + this.l;
     if (!this.s) {
       if (final) {
-        if (!ncs) return;
+        if (!ncs) {
+          this.ondata(new u8(0), true);
+          return;
+        }
         // min for frame + one block
         if (ncs < 5) err(5);
       } else if (ncs < 18) {
@@ -722,7 +725,7 @@ export class Decompress {
       if (typeof (this.s = rzfh(chunk)) == 'number') return this.push(chunk, final);
     }
     if (typeof this.s != 'number') {
-      if (ncs < (this.z || 4)) {
+      if (ncs < (this.z || 3)) {
         if (final) err(5);
         this.c.push(chunk);
         this.l = ncs;
@@ -734,7 +737,7 @@ export class Decompress {
         this.c = [];
         this.l = 0;
       }
-      if (!this.z && ncs < (this.z = (chunk[(this.s as DZstdState).b] & 2) ? 5 : 4 + ((chunk[(this.s as DZstdState).b] >> 3) | (chunk[(this.s as DZstdState).b + 1] << 5) | (chunk[(this.s as DZstdState).b + 2] << 13)))) {
+      if (!this.z && ncs < (this.z = (chunk[(this.s as DZstdState).b] & 2) ? 4 : 3 + ((chunk[(this.s as DZstdState).b] >> 3) | (chunk[(this.s as DZstdState).b + 1] << 5) | (chunk[(this.s as DZstdState).b + 2] << 13)))) {
         if (final) err(5);
         this.c.push(chunk);
         this.l = ncs;
@@ -760,7 +763,7 @@ export class Decompress {
           return;
         }
       }
-    }
+    } else if (final) err(5);
   }
 
   /**

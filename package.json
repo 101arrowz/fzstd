@@ -1,6 +1,6 @@
 {
   "name": "fzstd",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "High performance Zstandard (de)compression",
   "main": "./lib/index.js",
   "module": "./esm/index.mjs",
@@ -15,7 +15,10 @@
     }
   },
   "sideEffects": false,
-  "repository": "https://github.com/101arrowz/fzstd",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/101arrowz/fzstd.git"
+  },
   "bugs": {
     "email": "arjunbarrett@gmail.com",
     "url": "https://github.com/101arrowz/fzstd/issues"
@@ -33,12 +36,12 @@
     "fast"
   ],
   "scripts": {
-    "build": "yarn build:lib",
+    "build": "npm run build:lib",
     "script": "node -r ts-node/register scripts/$SC.ts",
-    "build:lib": "tsc && tsc --project tsconfig.esm.json && yarn build:rewrite && yarn build:umd",
-    "build:umd": "SC=buildUMD yarn script",
-    "build:rewrite": "SC=rewriteBuilds yarn script",
-    "prepack": "yarn build"
+    "build:lib": "tsc && tsc --project tsconfig.esm.json && npm run build:rewrite && npm run build:umd",
+    "build:umd": "SC=buildUMD npm run script",
+    "build:rewrite": "SC=rewriteBuilds npm run script",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^14.11.2",
