@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run Deno tests
+        run: deno test --no-check tests/simple_cases_test.ts
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Run Bun tests
+        run: |
+          if [ -f tests/streaming_regression_test.ts ]; then
+            bun test tests/streaming_regression_test.ts
+          else
+            echo "No Bun tests on this branch"
+          fi
