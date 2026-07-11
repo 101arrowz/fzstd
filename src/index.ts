@@ -541,9 +541,12 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
         const ofc = oct.s[ost];
         const obtr = oct.n[ost];
 
+        if (ofc > 30) err(4);
         cbt = (spos -= ofc) >> 3;
-        const ofp = 1 << ofc;
-        let off = ofp + (((dat[cbt] | (dat[cbt + 1] << 8) | (dat[cbt + 2] << 16) | (dat[cbt + 3] << 24)) >>> (spos & 7)) & (ofp - 1));
+        const sh = spos & 7, ofp = 1 << ofc, ofm = ofp - 1;
+        let off = ofp + (((dat[cbt] | (dat[cbt + 1] << 8) | (dat[cbt + 2] << 16) | (dat[cbt + 3] << 24)) >>> sh) & ofm);
+        // Four bytes only guarantee 25 bits; large offsets can need a fifth.
+        if (sh + ofc > 32) off += (dat[cbt + 4] << (32 - sh)) & ofm;
         cbt = (spos -= mlb[mlc]) >> 3;
         let ml = mlbl[mlc] + (((dat[cbt] | (dat[cbt + 1] << 8) | (dat[cbt + 2] << 16)) >> (spos & 7)) & ((1 << mlb[mlc]) - 1));
         cbt = (spos -= llb[llc]) >> 3;
