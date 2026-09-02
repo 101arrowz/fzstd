@@ -569,6 +569,8 @@ const rzb = (dat: Uint8Array, st: DZstdState, out?: Uint8Array) => {
             st.o[0] = off;
           } else off = st.o[0];
         }
+        // decoded output must stay within the block buffer
+        if (oubt + ll + ml > buf.length) err(0);
         for (let i = 0; i < ll; ++i) {
           buf[oubt + i] = buf[spl + i];
         }
