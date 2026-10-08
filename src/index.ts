@@ -634,22 +634,24 @@ export function decompress(dat: Uint8Array, buf?: Uint8Array) {
   const bufs: Uint8Array[] = [], nb = +!buf as 0 | 1;
   let bt = 0, ol = 0;
   for (; dat.length;) {
-    const st = rzfh(dat, nb || buf);
+    // with an output buffer, each frame is written after the previous one
+    const st = rzfh(dat, nb || buf.subarray(ol));
     if (typeof st == 'object') {
+      // frame output, if decoded in place
+      let fo: Uint8Array = null;
       if (nb) {
-        buf = null;
         if (st.w.length == st.u) {
-          bufs.push(buf = st.w);
+          bufs.push(fo = st.w);
           ol += st.u;
         }
       } else {
-        bufs.push(buf);
+        fo = st.w;
         st.e = 0;
       }
       for (; !st.l;) {
-        const blk = rzb(dat, st, buf);
+        const blk = rzb(dat, st, fo);
         if (!blk) err(5);
-        if (buf) st.e = st.y;
+        if (fo) st.e = st.y;
         else {
           bufs.push(blk);
           ol += blk.length;
@@ -657,11 +659,12 @@ export function decompress(dat: Uint8Array, buf?: Uint8Array) {
           st.w.set(blk, st.w.length - blk.length);
         }
       }
+      if (!nb) ol += st.y;
       bt = st.b + (st.c * 4);
     } else bt = st;
     dat = dat.subarray(bt);
   }
-  return cct(bufs, ol);
+  return nb ? cct(bufs, ol) : buf;
 }
 
 /**
